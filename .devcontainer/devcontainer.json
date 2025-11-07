@@ -1,0 +1,37 @@
+{
+  "name": "Python Development",
+  "image": "mcr.microsoft.com/devcontainers/python:3.13",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "lts"
+    },
+    "ghcr.io/gvatsal60/dev-container-features/uv:0": {},
+    "ghcr.io/jsburckhardt/devcontainer-features/ruff:1": {}
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.pylint",
+        "ms-python.black-formatter",
+        "ms-vscode.vscode-json",
+        "ms-vscode.vscode-typescript-next"
+      ]
+    }
+  },
+  "forwardPorts": [
+    5000,
+    8000
+  ],
+  "mounts": [
+    "source=${localEnv:HOME}/.config/opencode,target=/home/vscode/.config/opencode,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.local/share/opencode,target=/home/vscode/.local/share/opencode,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.local/state/opencode,target=/home/vscode/.local/state/opencode,type=bind,consistency=cached"
+  ],
+  "containerEnv": {
+    "TERM": "xterm-256color",
+    "COLORTERM": "truecolor"
+  },
+  "postCreateCommand": "npm install -g opencode-ai",
+  "remoteUser": "vscode"
+}
