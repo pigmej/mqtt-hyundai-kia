@@ -58,10 +58,15 @@ class MQTTClient:
             logger.info("Connected to MQTT broker")
             self.connected = True
             
-            # Subscribe to command topics for all vehicles
+            # Subscribe to refresh command topics for all vehicles
             command_topic = self.topic_manager.all_commands_topic()
             client.subscribe(command_topic, qos=1)
-            logger.info(f"Subscribed to command topic: {command_topic}")
+            logger.info(f"Subscribed to refresh command topic: {command_topic}")
+            
+            # Subscribe to control command topics for all vehicles
+            control_command_topic = self.topic_manager.all_control_commands_topic()
+            client.subscribe(control_command_topic, qos=1)
+            logger.info(f"Subscribed to control command topics: {control_command_topic}")
         else:
             logger.error(f"Failed to connect to MQTT broker: {rc}")
             self.connected = False
@@ -183,6 +188,20 @@ class MQTTClient:
                         topic = self.topic_manager.ev_topic(vehicle_data.vehicle_id, metric)
                     elif category == "status":
                         topic = self.topic_manager.status_topic(vehicle_data.vehicle_id, metric)
+                    elif category == "doors":
+                        topic = self.topic_manager.door_topic(vehicle_data.vehicle_id, metric)
+                    elif category == "windows":
+                        topic = self.topic_manager.window_topic(vehicle_data.vehicle_id, metric)
+                    elif category == "climate":
+                        topic = self.topic_manager.climate_topic(vehicle_data.vehicle_id, metric)
+                    elif category == "location":
+                        topic = self.topic_manager.location_topic(vehicle_data.vehicle_id, metric)
+                    elif category == "tires":
+                        topic = self.topic_manager.tire_topic(vehicle_data.vehicle_id, metric)
+                    elif category == "service":
+                        topic = self.topic_manager.service_topic(vehicle_data.vehicle_id, metric)
+                    elif category == "engine":
+                        topic = self.topic_manager.engine_topic(vehicle_data.vehicle_id, metric)
                     else:
                         continue
                     
@@ -216,6 +235,35 @@ class MQTTClient:
             
         except Exception as e:
             logger.error(f"Error publishing vehicle data: {e}")
+
+    async def publish(self, topic: str, payload: Any, qos: int = 0, retain: bool = False) -> None:
+        """
+        Publish a message to a specific topic.
+        
+        Args:
+            topic: MQTT topic
+            payload: Message payload (will be converted to string)
+            qos: Quality of Service level (0, 1, or 2)
+            retain: Whether to retain the message
+        """
+        if not self.connected:
+            logger.warning("Not connected to MQTT broker, skipping publish")
+            return
+        
+        try:
+            # Convert payload to string if needed
+            if not isinstance(payload, str):
+                payload = json.dumps(payload)
+            
+            result = self.client.publish(topic, payload, qos=qos, retain=retain)
+            
+            if result.rc != mqtt.MQTT_ERR_SUCCESS:
+                logger.warning(f"Failed to publish to {topic}: {result.rc}")
+            else:
+                logger.debug(f"Published to {topic}: {payload[:100]}")  # Log first 100 chars
+                
+        except Exception as e:
+            logger.error(f"Error publishing to {topic}: {e}")
 
     async def publish_error_status(self, vehicle_id: str, error_data: Optional[Dict[str, Any]]) -> None:
         """

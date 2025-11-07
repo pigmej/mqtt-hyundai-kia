@@ -25,6 +25,22 @@ class HyundaiMQTTService:
         self.command_handler: Optional[CommandHandler] = None
         self._shutdown_event: asyncio.Event = asyncio.Event()
 
+    async def _route_mqtt_command(self, topic: str, payload: str) -> None:
+        """Route MQTT commands to appropriate handler."""
+        if not self.command_handler:
+            logger.error("Command handler not initialized")
+            return
+        
+        # Check if it's a control command or refresh command
+        if "/commands/refresh" in topic:
+            # Refresh command
+            await self.command_handler.enqueue_command(topic, payload)
+        elif "/commands/" in topic:
+            # Control command (lock, climate, windows, etc.)
+            await self.command_handler.enqueue_control_command(topic, payload)
+        else:
+            logger.warning(f"Unknown command topic: {topic}")
+
     async def initialize(self) -> None:
         """Initialize all components."""
         try:
@@ -41,18 +57,15 @@ class HyundaiMQTTService:
             self.api_client = HyundaiAPIClient(self.config.hyundai)
             await self.api_client.initialize()
             
-            # Initialize command handler (without MQTT client yet)
-            self.command_handler = CommandHandler(self.api_client, None)
-            
             # Initialize MQTT client with command callback
             logger.info("Initializing MQTT client")
             self.mqtt_client = MQTTClient(
                 self.config.mqtt,
-                on_command_callback=self.command_handler.enqueue_command
+                on_command_callback=self._route_mqtt_command
             )
             
-            # Set MQTT client in command handler
-            self.command_handler.mqtt_client = self.mqtt_client
+            # Initialize command handler with both clients
+            self.command_handler = CommandHandler(self.api_client, self.mqtt_client)
             
             # Connect to MQTT broker
             await self.mqtt_client.connect()
@@ -96,10 +109,16 @@ class HyundaiMQTTService:
             # Load initial data
             await self.load_initial_data()
             
-            # Start command processing loop
+            if not self.command_handler:
+                raise RuntimeError("Command handler not initialized")
+            
+            # Start command processing loops
             logger.info("Starting command processing")
             command_task = asyncio.create_task(
                 self.command_handler.process_commands()
+            )
+            control_command_task = asyncio.create_task(
+                self.command_handler.process_control_commands()
             )
             
             logger.info("Service is running. Waiting for MQTT commands...")
@@ -111,8 +130,13 @@ class HyundaiMQTTService:
             
             # Cancel tasks
             command_task.cancel()
+            control_command_task.cancel()
             try:
                 await command_task
+            except asyncio.CancelledError:
+                pass
+            try:
+                await control_command_task
             except asyncio.CancelledError:
                 pass
             
