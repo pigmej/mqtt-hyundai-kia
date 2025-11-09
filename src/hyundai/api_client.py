@@ -2,7 +2,7 @@
 
 import asyncio
 from datetime import datetime, timedelta
-from typing import Any, List, Optional
+from typing import Any, Callable, List, Optional
 
 from hyundai_kia_connect_api import VehicleManager, ClimateRequestOptions, WindowRequestOptions
 from hyundai_kia_connect_api.ApiImpl import ORDER_STATUS
@@ -90,6 +90,48 @@ class HyundaiAPIClient:
         self.config: HyundaiConfig = config
         self.vehicle_manager: Optional[VehicleManager] = None
         self.circuit_breaker: CircuitBreaker = CircuitBreaker()
+        self._token_refresh_lock: asyncio.Lock = asyncio.Lock()
+        self._last_refresh_time: Optional[datetime] = None
+
+    async def _is_token_expired_error(self, error: Exception) -> bool:
+        """Check if error indicates token expiration."""
+        error_str = str(error).lower()
+        return any(keyword in error_str for keyword in [
+            "token is expired",
+            "key not authorized: token is expired",
+            "authentication failed",
+            "unauthorized"
+        ])
+
+    async def _refresh_token_safely(self) -> None:
+        """Safely refresh token with concurrency protection."""
+        async with self._token_refresh_lock:
+            # Double-check pattern to avoid redundant refreshes
+            if self._last_refresh_time and \
+               (datetime.utcnow() - self._last_refresh_time).seconds < 30:
+                return
+            
+            if not self.vehicle_manager:
+                raise HyundaiAPIError("VehicleManager not initialized")
+            
+            logger.info("Refreshing expired token")
+            await asyncio.to_thread(self.vehicle_manager.check_and_refresh_token)
+            self._last_refresh_time = datetime.utcnow()
+            logger.info("Token refresh completed successfully")
+
+    async def _execute_with_retry(self, operation: Callable, *args, **kwargs) -> Any:
+        """Execute operation with token refresh and retry logic."""
+        try:
+            return await operation(*args, **kwargs)
+        except Exception as e:
+            if await self._is_token_expired_error(e):
+                logger.warning(f"Token expired detected, attempting refresh: {e}")
+                await self._refresh_token_safely()
+                logger.info("Retrying operation after token refresh")
+                return await operation(*args, **kwargs)
+            else:
+                # Re-raise non-token errors
+                raise
 
     async def initialize(self) -> None:
         """
@@ -154,9 +196,15 @@ class HyundaiAPIClient:
             return map_vehicle_data(vehicle, "cached", "cached")
 
         except Exception as e:
-            self.circuit_breaker.record_failure()
-            logger.error(f"Cached refresh failed for vehicle {vehicle_id}: {e}")
-            raise RefreshError(f"Cached refresh failed: {e}")
+            if await self._is_token_expired_error(e):
+                logger.warning(f"Token expired detected, attempting refresh: {e}")
+                await self._refresh_token_safely()
+                logger.info("Retrying operation after token refresh")
+                return await self.refresh_cached(vehicle_id)
+            else:
+                self.circuit_breaker.record_failure()
+                logger.error(f"Cached refresh failed for vehicle {vehicle_id}: {e}")
+                raise RefreshError(f"Cached refresh failed: {e}")
 
     async def refresh_force(self, vehicle_id: str) -> VehicleData:
         """
@@ -184,9 +232,15 @@ class HyundaiAPIClient:
             return map_vehicle_data(vehicle, "fresh", "force")
 
         except Exception as e:
-            self.circuit_breaker.record_failure()
-            logger.error(f"Force refresh failed for vehicle {vehicle_id}: {e}")
-            raise RefreshError(f"Force refresh failed: {e}")
+            if await self._is_token_expired_error(e):
+                logger.warning(f"Token expired detected, attempting refresh: {e}")
+                await self._refresh_token_safely()
+                logger.info("Retrying operation after token refresh")
+                return await self.refresh_force(vehicle_id)
+            else:
+                self.circuit_breaker.record_failure()
+                logger.error(f"Force refresh failed for vehicle {vehicle_id}: {e}")
+                raise RefreshError(f"Force refresh failed: {e}")
 
     async def refresh_smart(self, vehicle_id: str, max_age_seconds: int) -> VehicleData:
         """
@@ -245,9 +299,15 @@ class HyundaiAPIClient:
             return map_vehicle_data(vehicle, data_source, "smart")
 
         except Exception as e:
-            self.circuit_breaker.record_failure()
-            logger.error(f"Smart refresh failed for vehicle {vehicle_id}: {e}")
-            raise RefreshError(f"Smart refresh failed: {e}")
+            if await self._is_token_expired_error(e):
+                logger.warning(f"Token expired detected, attempting refresh: {e}")
+                await self._refresh_token_safely()
+                logger.info("Retrying operation after token refresh")
+                return await self.refresh_smart(vehicle_id, max_age_seconds)
+            else:
+                self.circuit_breaker.record_failure()
+                logger.error(f"Smart refresh failed for vehicle {vehicle_id}: {e}")
+                raise RefreshError(f"Smart refresh failed: {e}")
 
     def get_vehicle_ids(self) -> List[str]:
         """Return list of available vehicle IDs."""
@@ -301,9 +361,15 @@ class HyundaiAPIClient:
             return action_id
             
         except Exception as e:
-            self.circuit_breaker.record_failure()
-            logger.error(f"Lock command failed for vehicle {vehicle_id}: {e}")
-            raise HyundaiAPIError(f"Lock command failed: {e}")
+            if await self._is_token_expired_error(e):
+                logger.warning(f"Token expired detected, attempting refresh: {e}")
+                await self._refresh_token_safely()
+                logger.info("Retrying operation after token refresh")
+                return await self.lock_vehicle(vehicle_id)
+            else:
+                self.circuit_breaker.record_failure()
+                logger.error(f"Lock command failed for vehicle {vehicle_id}: {e}")
+                raise HyundaiAPIError(f"Lock command failed: {e}")
 
     async def unlock_vehicle(self, vehicle_id: str) -> str:
         """
@@ -335,9 +401,15 @@ class HyundaiAPIClient:
             return action_id
             
         except Exception as e:
-            self.circuit_breaker.record_failure()
-            logger.error(f"Unlock command failed for vehicle {vehicle_id}: {e}")
-            raise HyundaiAPIError(f"Unlock command failed: {e}")
+            if await self._is_token_expired_error(e):
+                logger.warning(f"Token expired detected, attempting refresh: {e}")
+                await self._refresh_token_safely()
+                logger.info("Retrying operation after token refresh")
+                return await self.unlock_vehicle(vehicle_id)
+            else:
+                self.circuit_breaker.record_failure()
+                logger.error(f"Unlock command failed for vehicle {vehicle_id}: {e}")
+                raise HyundaiAPIError(f"Unlock command failed: {e}")
 
     async def start_climate(self, vehicle_id: str, options: Any) -> str:
         """
@@ -387,9 +459,15 @@ class HyundaiAPIClient:
             return action_id
             
         except Exception as e:
-            self.circuit_breaker.record_failure()
-            logger.error(f"Start climate command failed for vehicle {vehicle_id}: {e}")
-            raise HyundaiAPIError(f"Start climate command failed: {e}")
+            if await self._is_token_expired_error(e):
+                logger.warning(f"Token expired detected, attempting refresh: {e}")
+                await self._refresh_token_safely()
+                logger.info("Retrying operation after token refresh")
+                return await self.start_climate(vehicle_id, options)
+            else:
+                self.circuit_breaker.record_failure()
+                logger.error(f"Start climate command failed for vehicle {vehicle_id}: {e}")
+                raise HyundaiAPIError(f"Start climate command failed: {e}")
 
     async def stop_climate(self, vehicle_id: str) -> str:
         """
@@ -429,9 +507,15 @@ class HyundaiAPIClient:
             return action_id
             
         except Exception as e:
-            self.circuit_breaker.record_failure()
-            logger.error(f"Stop climate command failed for vehicle {vehicle_id}: {e}")
-            raise HyundaiAPIError(f"Stop climate command failed: {e}")
+            if await self._is_token_expired_error(e):
+                logger.warning(f"Token expired detected, attempting refresh: {e}")
+                await self._refresh_token_safely()
+                logger.info("Retrying operation after token refresh")
+                return await self.stop_climate(vehicle_id)
+            else:
+                self.circuit_breaker.record_failure()
+                logger.error(f"Stop climate command failed for vehicle {vehicle_id}: {e}")
+                raise HyundaiAPIError(f"Stop climate command failed: {e}")
 
     async def set_windows_state(self, vehicle_id: str, options: Any) -> str:
         """
@@ -476,9 +560,15 @@ class HyundaiAPIClient:
             return action_id
             
         except Exception as e:
-            self.circuit_breaker.record_failure()
-            logger.error(f"Set windows command failed for vehicle {vehicle_id}: {e}")
-            raise HyundaiAPIError(f"Set windows command failed: {e}")
+            if await self._is_token_expired_error(e):
+                logger.warning(f"Token expired detected, attempting refresh: {e}")
+                await self._refresh_token_safely()
+                logger.info("Retrying operation after token refresh")
+                return await self.set_windows_state(vehicle_id, options)
+            else:
+                self.circuit_breaker.record_failure()
+                logger.error(f"Set windows command failed for vehicle {vehicle_id}: {e}")
+                raise HyundaiAPIError(f"Set windows command failed: {e}")
 
     async def open_charge_port(self, vehicle_id: str) -> str:
         """
@@ -510,9 +600,15 @@ class HyundaiAPIClient:
             return action_id
             
         except Exception as e:
-            self.circuit_breaker.record_failure()
-            logger.error(f"Open charge port command failed for vehicle {vehicle_id}: {e}")
-            raise HyundaiAPIError(f"Open charge port command failed: {e}")
+            if await self._is_token_expired_error(e):
+                logger.warning(f"Token expired detected, attempting refresh: {e}")
+                await self._refresh_token_safely()
+                logger.info("Retrying operation after token refresh")
+                return await self.open_charge_port(vehicle_id)
+            else:
+                self.circuit_breaker.record_failure()
+                logger.error(f"Open charge port command failed for vehicle {vehicle_id}: {e}")
+                raise HyundaiAPIError(f"Open charge port command failed: {e}")
 
     async def close_charge_port(self, vehicle_id: str) -> str:
         """
@@ -544,9 +640,15 @@ class HyundaiAPIClient:
             return action_id
             
         except Exception as e:
-            self.circuit_breaker.record_failure()
-            logger.error(f"Close charge port command failed for vehicle {vehicle_id}: {e}")
-            raise HyundaiAPIError(f"Close charge port command failed: {e}")
+            if await self._is_token_expired_error(e):
+                logger.warning(f"Token expired detected, attempting refresh: {e}")
+                await self._refresh_token_safely()
+                logger.info("Retrying operation after token refresh")
+                return await self.close_charge_port(vehicle_id)
+            else:
+                self.circuit_breaker.record_failure()
+                logger.error(f"Close charge port command failed for vehicle {vehicle_id}: {e}")
+                raise HyundaiAPIError(f"Close charge port command failed: {e}")
 
     async def set_charging_current(self, vehicle_id: str, level: int) -> str:
         """
@@ -583,9 +685,15 @@ class HyundaiAPIClient:
             return action_id
             
         except Exception as e:
-            self.circuit_breaker.record_failure()
-            logger.error(f"Set charging current command failed for vehicle {vehicle_id}: {e}")
-            raise HyundaiAPIError(f"Set charging current command failed: {e}")
+            if await self._is_token_expired_error(e):
+                logger.warning(f"Token expired detected, attempting refresh: {e}")
+                await self._refresh_token_safely()
+                logger.info("Retrying operation after token refresh")
+                return await self.set_charging_current(vehicle_id, level)
+            else:
+                self.circuit_breaker.record_failure()
+                logger.error(f"Set charging current command failed for vehicle {vehicle_id}: {e}")
+                raise HyundaiAPIError(f"Set charging current command failed: {e}")
 
     async def check_action_status(
         self,
@@ -642,9 +750,15 @@ class HyundaiAPIClient:
                 return self._parse_action_status(status_response)
                 
         except Exception as e:
-            self.circuit_breaker.record_failure()
-            logger.error(f"Action status check failed: {e}")
-            raise HyundaiAPIError(f"Action status check failed: {e}")
+            if await self._is_token_expired_error(e):
+                logger.warning(f"Token expired detected, attempting refresh: {e}")
+                await self._refresh_token_safely()
+                logger.info("Retrying operation after token refresh")
+                return await self.check_action_status(vehicle_id, action_id, synchronous, timeout_seconds)
+            else:
+                self.circuit_breaker.record_failure()
+                logger.error(f"Action status check failed: {e}")
+                raise HyundaiAPIError(f"Action status check failed: {e}")
 
     def _parse_action_status(self, status_response: Any) -> str:
         """
