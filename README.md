@@ -280,7 +280,12 @@ This project is open source. See LICENSE file for details.
 
 Contributions welcome! Please open an issue or pull request.
 
+## Development
+
+This project was developed using [aisanity](https://github.com/pigmej/aisanity) - an AI-assisted software development framework that enables rapid, intelligent code generation and debugging.
+
 ## Acknowledgments
 
 - Built on [hyundai_kia_connect_api](https://github.com/Hyundai-Kia-Connect/hyundai_kia_connect_api)
 - Uses [paho-mqtt](https://www.eclipse.org/paho/index.php?page=clients/python/index.php) for MQTT communication
+- Developed with [aisanity](https://github.com/pigmej/aisanity) for AI-assisted development
