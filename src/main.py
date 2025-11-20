@@ -2,6 +2,7 @@
 
 import asyncio
 import signal
+from pathlib import Path
 from typing import Any, Optional
 
 from .commands import CommandHandler
@@ -30,7 +31,7 @@ class HyundaiMQTTService:
         if not self.command_handler:
             logger.error("Command handler not initialized")
             return
-        
+
         # Check if it's a control command or refresh command
         if "/commands/refresh" in topic:
             # Refresh command
@@ -47,31 +48,38 @@ class HyundaiMQTTService:
             # Load and validate configuration
             logger.info("Loading configuration")
             self.config = load_config()
-            
+
             # Configure logging level
             import logging
+
             logging.getLogger().setLevel(self.config.log_level)
-            
+
             # Initialize Hyundai API client
             logger.info("Initializing Hyundai API client")
             self.api_client = HyundaiAPIClient(self.config.hyundai)
             await self.api_client.initialize()
-            
+
             # Initialize MQTT client with command callback
             logger.info("Initializing MQTT client")
             self.mqtt_client = MQTTClient(
-                self.config.mqtt,
-                on_command_callback=self._route_mqtt_command
+                self.config.mqtt, on_command_callback=self._route_mqtt_command
             )
-            
+
             # Initialize command handler with both clients
             self.command_handler = CommandHandler(self.api_client, self.mqtt_client)
-            
+
             # Connect to MQTT broker
             await self.mqtt_client.connect()
-            
+
+            # Create service readiness file for health check
+            try:
+                Path("/tmp/service-ready").touch()
+                logger.info("Service readiness file created")
+            except Exception as e:
+                logger.warning(f"Failed to create service readiness file: {e}")
+
             logger.info("Service initialized successfully")
-            
+
         except Exception as e:
             logger.error(f"Failed to initialize service: {e}", exc_info=True)
             raise
@@ -81,16 +89,16 @@ class HyundaiMQTTService:
         if not self.config or not self.config.initial_refresh:
             logger.info("Skipping initial data load (INITIAL_REFRESH=false)")
             return
-        
+
         logger.info("Loading initial cached data")
-        
+
         if not self.api_client or not self.mqtt_client:
             logger.error("Cannot load initial data: components not initialized")
             return
-        
+
         vehicle_ids = self.api_client.get_vehicle_ids()
         logger.info(f"Found {len(vehicle_ids)} vehicles")
-        
+
         for vehicle_id in vehicle_ids:
             try:
                 logger.info(f"Loading initial data for vehicle {vehicle_id}")
@@ -98,36 +106,36 @@ class HyundaiMQTTService:
                 await self.mqtt_client.publish_vehicle_data(data)
                 logger.info(f"Initial data loaded for vehicle {vehicle_id}")
             except Exception as e:
-                logger.error(f"Failed to load initial data for vehicle {vehicle_id}: {e}")
+                logger.error(
+                    f"Failed to load initial data for vehicle {vehicle_id}: {e}"
+                )
 
     async def run(self) -> None:
         """Main service loop."""
         try:
             # Initialize components
             await self.initialize()
-            
+
             # Load initial data
             await self.load_initial_data()
-            
+
             if not self.command_handler:
                 raise RuntimeError("Command handler not initialized")
-            
+
             # Start command processing loops
             logger.info("Starting command processing")
-            command_task = asyncio.create_task(
-                self.command_handler.process_commands()
-            )
+            command_task = asyncio.create_task(self.command_handler.process_commands())
             control_command_task = asyncio.create_task(
                 self.command_handler.process_control_commands()
             )
-            
+
             logger.info("Service is running. Waiting for MQTT commands...")
-            
+
             # Wait for shutdown signal
             await self._shutdown_event.wait()
-            
+
             logger.info("Shutdown signal received")
-            
+
             # Cancel tasks
             command_task.cancel()
             control_command_task.cancel()
@@ -139,7 +147,7 @@ class HyundaiMQTTService:
                 await control_command_task
             except asyncio.CancelledError:
                 pass
-            
+
         except Exception as e:
             logger.critical(f"Service failed: {e}", exc_info=True)
             raise
@@ -149,10 +157,19 @@ class HyundaiMQTTService:
     async def shutdown(self) -> None:
         """Graceful shutdown of all components."""
         logger.info("Shutting down service")
-        
+
+        # Remove service readiness file
+        try:
+            readiness_file = Path("/tmp/service-ready")
+            if readiness_file.exists():
+                readiness_file.unlink()
+                logger.info("Service readiness file removed")
+        except Exception as e:
+            logger.warning(f"Failed to remove service readiness file: {e}")
+
         if self.mqtt_client:
             self.mqtt_client.disconnect()
-        
+
         logger.info("Service shutdown complete")
 
     def signal_handler(self, sig: int, frame: Any) -> None:
@@ -170,11 +187,11 @@ class HyundaiMQTTService:
 async def main() -> None:
     """Application entry point."""
     service = HyundaiMQTTService()
-    
+
     # Register signal handlers
     signal.signal(signal.SIGINT, service.signal_handler)
     signal.signal(signal.SIGTERM, service.signal_handler)
-    
+
     # Run service
     await service.run()
 

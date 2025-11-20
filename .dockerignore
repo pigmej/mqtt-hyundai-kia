@@ -1,0 +1,108 @@
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# Documentation (exclude only non-essential docs, keep README.md)
+docs/
+CHANGELOG.md
+CONTRIBUTING.md
+LICENSE
+
+# Development files
+.env*
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Python cache and build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Testing and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# Virtual environments
+.venv
+venv/
+ENV/
+env/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# Node modules (if any)
+node_modules/
+
+# Docker files (exclude from build context)
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# CI/CD files
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Plan and task directories
+.plan/
+.task/
+.arch_/
+
+# Development scripts
+debug_*.py
+test_*.py
+*_test.sh
+
+# Build and lock files (keep pyproject.toml)
+uv.lock
+.python-version
+
+# AISanity and other tooling files
+.aisanity
+opencode.jsonc

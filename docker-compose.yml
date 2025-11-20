@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  hyundai-mqtt:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hyundai-mqtt
+    restart: unless-stopped
+    environment:
+      # Hyundai API Configuration
+      HYUNDAI_USERNAME: ${HYUNDAI_USERNAME}
+      HYUNDAI_PASSWORD: ${HYUNDAI_PASSWORD}
+      HYUNDAI_PIN: ${HYUNDAI_PIN}
+      HYUNDAI_REGION: ${HYUNDAI_REGION:-EU}
+      HYUNDAI_BRAND: ${HYUNDAI_BRAND:-hyundai}
+      
+      # MQTT Configuration
+      MQTT_BROKER_HOST: ${MQTT_BROKER_HOST:-mosquitto}
+      MQTT_BROKER_PORT: ${MQTT_BROKER_PORT:-1883}
+      MQTT_USERNAME: ${MQTT_USERNAME}
+      MQTT_PASSWORD: ${MQTT_PASSWORD}
+      
+      # Application Configuration
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      INITIAL_REFRESH: ${INITIAL_REFRESH:-true}
+      REFRESH_INTERVAL: ${REFRESH_INTERVAL:-60}
+    depends_on:
+      mosquitto:
+        condition: service_started
+    networks:
+      - mqtt-network
+    volumes:
+      # Mount readiness file directory for health checks
+      - /tmp:/tmp
+
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_logs:/mosquitto/log
+    networks:
+      - mqtt-network
+    healthcheck:
+      test: ["CMD", "mosquitto_pub", "-h", "localhost", "-t", "test", "-m", "health_check"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  mqtt-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  mosquitto_data:
+    driver: local
+  mosquitto_logs:
+    driver: local

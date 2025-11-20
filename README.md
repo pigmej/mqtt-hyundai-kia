@@ -23,13 +23,77 @@ This service connects your Hyundai/Kia/Genesis electric vehicle to an MQTT broke
 
 ## Installation
 
-### Prerequisites
+### Option 1: Docker (Recommended)
+
+#### Using Pre-built Image
+
+```bash
+docker run -d \
+  --name hyundai-mqtt \
+  --restart unless-stopped \
+  -e HYUNDAI_USERNAME=your_email@example.com \
+  -e HYUNDAI_PASSWORD=your_password \
+  -e HYUNDAI_PIN=your_pin \
+  -e HYUNDAI_REGION=1 \
+  -e HYUNDAI_BRAND=1 \
+  -e MQTT_BROKER_HOST=your_mqtt_broker \
+  -e MQTT_BROKER_PORT=1883 \
+  ghcr.io/yourusername/hyundai-mqtt:latest
+```
+
+#### Building Locally
+
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/hyundai-mqtt.git
+cd hyundai-mqtt
+
+# Build the Docker image
+docker build -t hyundai-mqtt .
+
+# Run the container
+docker run -d \
+  --name hyundai-mqtt \
+  --restart unless-stopped \
+  -e HYUNDAI_USERNAME=your_email@example.com \
+  -e HYUNDAI_PASSWORD=your_password \
+  -e HYUNDAI_PIN=your_pin \
+  -e HYUNDAI_REGION=1 \
+  -e HYUNDAI_BRAND=1 \
+  -e MQTT_BROKER_HOST=your_mqtt_broker \
+  hyundai-mqtt
+```
+
+#### Docker Compose (Development)
+
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/hyundai-mqtt.git
+cd hyundai-mqtt
+
+# Copy and edit environment file
+cp .env.example .env
+# Edit .env with your credentials
+
+# Start with Docker Compose (includes Mosquitto broker)
+docker-compose up -d
+
+# View logs
+docker-compose logs -f hyundai-mqtt
+
+# Stop services
+docker-compose down
+```
+
+### Option 2: Python Installation
+
+#### Prerequisites
 
 - Python 3.10 or higher
 - MQTT broker (e.g., Mosquitto)
 - Hyundai/Kia/Genesis Bluelink account
 
-### Install Dependencies
+#### Install Dependencies
 
 ```bash
 pip install -e .
@@ -42,6 +106,38 @@ pip install hyundai-kia-connect-api paho-mqtt python-dotenv
 ```
 
 ## Configuration
+
+### Environment Variables
+
+The service can be configured via environment variables. These work for both Docker and Python installations.
+
+#### Required Variables
+
+- `HYUNDAI_USERNAME`: Your Hyundai/Kia/Genesis account email
+- `HYUNDAI_PASSWORD`: Your account password
+- `HYUNDAI_PIN`: Your vehicle PIN (for control commands)
+- `MQTT_BROKER_HOST`: MQTT broker hostname or IP address
+
+#### Optional Variables
+
+```bash
+# Hyundai API Configuration
+HYUNDAI_REGION=1        # 1=Europe, 2=Canada, 3=USA, etc.
+HYUNDAI_BRAND=1         # 1=Hyundai, 2=Kia, 3=Genesis
+
+# MQTT Configuration
+MQTT_BROKER_PORT=1883   # MQTT broker port
+MQTT_USERNAME=          # MQTT authentication username (optional)
+MQTT_PASSWORD=          # MQTT authentication password (optional)
+MQTT_BASE_TOPIC=hyundai # Base topic for MQTT messages
+
+# Application Configuration
+LOG_LEVEL=INFO          # DEBUG, INFO, WARNING, ERROR
+INITIAL_REFRESH=true    # Load cached data on startup
+REFRESH_INTERVAL=60     # Default refresh interval in seconds
+```
+
+### Setup Instructions
 
 1. Copy the example environment file:
 
@@ -240,13 +336,57 @@ Use MQTT nodes to subscribe to topics and trigger automations based on battery l
 
 ## Troubleshooting
 
-### Service Won't Start
+### Docker Issues
+
+#### Container Won't Start
+
+```bash
+# Check container logs
+docker logs hyundai-mqtt
+
+# Check container status
+docker ps -a
+
+# Inspect container configuration
+docker inspect hyundai-mqtt
+```
+
+#### Health Check Issues
+
+```bash
+# Check container health status
+docker inspect --format='{{.State.Health.Status}}' hyundai-mqtt
+
+# View health check logs
+docker inspect --format='{{range .State.Health.Log}}{{.Output}}{{end}}' hyundai-mqtt
+```
+
+#### Docker Compose Issues
+
+```bash
+# View all service logs
+docker-compose logs
+
+# View specific service logs
+docker-compose logs hyundai-mqtt
+docker-compose logs mosquitto
+
+# Restart services
+docker-compose restart hyundai-mqtt
+
+# Rebuild and restart
+docker-compose up --build -d
+```
+
+### Python Installation Issues
+
+#### Service Won't Start
 
 1. Check your `.env` file has all required credentials
 2. Verify MQTT broker is running: `mosquitto -v`
 3. Check logs for specific error messages
 
-### No Data Published
+#### No Data Published
 
 1. Ensure initial refresh is enabled: `INITIAL_REFRESH=true`
 2. Send a manual refresh command via MQTT
@@ -260,9 +400,98 @@ Use MQTT nodes to subscribe to topics and trigger automations based on battery l
 
 ### Enable Debug Logging
 
-Set in `.env`:
+Set in `.env` or via environment variable:
 ```bash
 LOG_LEVEL=DEBUG
+```
+
+For Docker:
+```bash
+docker run -d \
+  --name hyundai-mqtt \
+  -e LOG_LEVEL=DEBUG \
+  # ... other environment variables
+  ghcr.io/yourusername/hyundai-mqtt:latest
+```
+
+## Monitoring and Maintenance
+
+### Docker Monitoring
+
+#### Container Health Monitoring
+
+```bash
+# Monitor container health in real-time
+watch -n 5 'docker inspect --format="{{.Name}}: {{.State.Health.Status}}" $(docker ps -q)'
+
+# Check resource usage
+docker stats hyundai-mqtt
+
+# View live logs
+docker logs -f hyundai-mqtt
+```
+
+#### Automated Health Checks
+
+The container includes built-in health checks that verify:
+- Service initialization completion
+- MQTT broker connectivity
+- API client status
+
+Health check status can be monitored via:
+- Docker health status (`docker ps`)
+- Container orchestration systems (Kubernetes, Docker Swarm)
+- Monitoring tools that support Docker health checks
+
+### Log Management
+
+#### Docker Logs
+
+```bash
+# View recent logs
+docker logs --tail 100 hyundai-mqtt
+
+# Follow logs in real-time
+docker logs -f hyundai-mqtt
+
+# Export logs to file
+docker logs hyundai-mqtt > hyundai-mqtt.log
+```
+
+#### Structured Logging
+
+The service outputs structured JSON logs when running in containers:
+```json
+{
+  "timestamp": "2025-11-19T10:30:00Z",
+  "level": "INFO",
+  "message": "Service initialized successfully",
+  "component": "HyundaiMQTTService"
+}
+```
+
+### Updates and Maintenance
+
+#### Updating Docker Image
+
+```bash
+# Pull latest image
+docker pull ghcr.io/yourusername/hyundai-mqtt:latest
+
+# Recreate container with new image
+docker-compose down
+docker-compose pull
+docker-compose up -d
+```
+
+#### Backup Configuration
+
+```bash
+# Backup environment configuration
+cp .env .env.backup
+
+# Backup Docker Compose configuration
+cp docker-compose.yml docker-compose.yml.backup
 ```
 
 ## Rate Limits and Best Practices
@@ -271,6 +500,8 @@ LOG_LEVEL=DEBUG
 - Use `smart` refresh for automatic updates (e.g., `smart:300` for 5-minute caching)
 - Use `force` refresh sparingly (wakes the vehicle)
 - Implement command throttling in your automation (minimum 5 seconds between commands)
+- Monitor container health and resource usage
+- Use structured logging for better observability in production
 
 ## License
 
