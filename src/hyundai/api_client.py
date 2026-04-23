@@ -109,10 +109,10 @@ class HyundaiAPIClient:
         return any(keyword in error_str for keyword in [
             "token is expired",
             "token has expired",
-            "key not authorized: token is expired",
+            "key not authorized",
             "key not authorized: token has expired",
             "authentication failed",
-            "unauthorized"
+            "unauthorized",
         ])
 
     async def _refresh_token_safely(self) -> None:
