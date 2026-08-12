@@ -12,3 +12,4 @@ wheels/
 .vscode/
 .env
 *.log
+.DS_Store

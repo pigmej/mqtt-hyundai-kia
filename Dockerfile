@@ -1,6 +1,9 @@
+ARG PYTHON_VERSION=3.14
+
 # Multi-stage build for Hyundai MQTT integration service
 # Stage 1: Build stage with full Python environment for dependency installation
-FROM python:3.10-slim AS builder
+FROM python:${PYTHON_VERSION}-slim AS builder
+
 
 # Set working directory
 WORKDIR /app
@@ -17,7 +20,9 @@ COPY pyproject.toml README.md ./
 RUN pip install --no-cache-dir --prefix /app/.local .
 
 # Stage 2: Runtime stage with minimal dependencies
-FROM python:3.10-slim
+FROM python:${PYTHON_VERSION}-slim
+
+ARG PYTHON_VERSION
 
 # Set working directory
 WORKDIR /app
@@ -37,7 +42,7 @@ COPY --chown=appuser:appuser . .
 
 # Set PATH and PYTHONPATH to include installed packages
 ENV PATH=/app/.local/bin:$PATH \
-    PYTHONPATH=/app/.local/lib/python3.10/site-packages
+    PYTHONPATH=/app/.local/lib/python${PYTHON_VERSION}/site-packages
 
 # Switch to non-root user
 USER appuser
